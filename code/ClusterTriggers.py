@@ -84,6 +84,7 @@ class ClusterEngine:
         self.time_step = args.time_step
         self.dm_steps = args.dm_steps
         self.buffer_size = args.buffer_size
+
         self.discretize_dm = DiscretizeDm(args)
         self.clusters = {}
         self.max_cluster_id = 0
@@ -366,6 +367,7 @@ def get_args():
     parser.add_argument(
         '-ts', '--time-step',
         default=0.1,
+        type=float,
         help=('Time discretisation step (seconds). During clustering all events timestamps are rounded '
               'to multiples of this value.')
     )
@@ -373,6 +375,7 @@ def get_args():
     parser.add_argument(
         '-dms', '--dm-steps',
         default=64,
+        type=int,
         help=('Number of dispersion measure discretisation step. During clustering all events '
         'dispersion measures are rounded to multiples of this value.')
     )
@@ -380,12 +383,14 @@ def get_args():
     parser.add_argument(
         '-dmlo', '--dm-min',
         default=1,
+        type=float,
         help='Maximum dispersion measure, all values above will be treated as if there where capped at this value'
     )
 
     parser.add_argument(
         '-dmhi', '--dm-max',
         default=1000,
+        type=float,
         help='Maximum dispersion measure, all values above will be treated as if there where capped at this value'
     )
 
@@ -400,16 +405,18 @@ def get_args():
     parser.add_argument(
         '-ct', '--max-duration',
         default=0.2,
+        type=float,
         help=('Maximum time duration of a cluster (seconds). If a cluster tries to grow bigger than this timespan '
               'the cluster will be broken in multiple clusters.')
     )
 
-    parser.add_argument(
-        '-z', '--buffer-size',
-        default=5,
-        help=('Maximum time (seconds) that we hang on to cluster  for modification before we flush then to '
-              'the output file.')
-    )
+    #parser.add_argument(
+    #    '-z', '--buffer-size',
+    #    default=5,
+    #    type=float,
+    #    help=('Maximum time (seconds) that we hang on to cluster  for modification before we flush then to '
+    #          'the output file.')
+    #)
 
     parser.add_argument(
         '-b', '--beam',
@@ -435,27 +442,31 @@ def get_args():
     parser.add_argument(
         '-siglo', '--sig-thresh',
         default=5.0,
+        type=float,
         help='Minimal SNR'
     )
     parser.add_argument(
         '-sighi', '--sig-max',
         default=np.inf,
+        type=float,
         help='Maximum SNR'
     )
 
     parser.add_argument(
         '-mr', '--max-rows',
         default=np.inf,
+        type=int,
         help='Maximum number of rows to read'
     )
     
     args = parser.parse_args()
+    args.buffer_size = 5
     return args
 # -------------------------------------------------------------------------------------
 #
 # -------------------------------------------------------------------------------------
 def main(args):
-    
+
     # dictionary of cluster engine, one for each integration_step
     cluster_engines = {}
 
@@ -490,7 +501,6 @@ def main(args):
         print(hdr)
         exit(1)
     
-        
     # process trigger lines
     row_count = 0
     for line in args.infile:
@@ -503,12 +513,10 @@ def main(args):
         try:
             beam, batch, sample, integration_step, t, DM, SNR = parser(line)
             
-            # blank out the integration step 
-            if args.ignore_integration_step:
-                integration_step = 1
+            
 
             # -------------------------------------------------------------
-            # apply filters
+            # apply filters, discard trigger
             # -------------------------------------------------------------
             if args.integration_step is not None:
                 if int(args.integration_step) != integration_step:
@@ -525,15 +533,22 @@ def main(args):
             if args.sig_max is not None:
                 if SNR > args.sig_max:
                     continue
-            
+
+            # -------------------------------------------------------------
+            # use 1 or multiple engines for clustering
+            # -------------------------------------------------------------
+            if args.ignore_integration_step:
+                engine_name = 'generic'
+            else:
+                engine_name = 'is_{}'.format(integration_step)
+
             # -------------------------------------------------------------
             # check if we already have a cluster engine for this integration step
             # -------------------------------------------------------------
-            if not integration_step in cluster_engines:
+            if not engine_name in cluster_engines:
                 ceng = ClusterEngine(integration_step, args)
-                cluster_engines[integration_step] = ceng
-
-            cluster_engines[integration_step].handle(t, DM, SNR, sample)
+                cluster_engines[engine_name] = ceng
+            cluster_engines[engine_name].handle(t, DM, SNR, sample)
         except:
             pass
 
